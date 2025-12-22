@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-dotenv
+langchain==0.3.3
+langchain-community
+langchain-openai
+langchain-chroma
+pypdf
+tiktoken

@@ -6,6 +6,8 @@ import {
   ArrowTrendingUpIcon, MapIcon, HomeIcon, TableCellsIcon, 
   MagnifyingGlassIcon, ChevronUpDownIcon, FunnelIcon, XMarkIcon, 
   ArrowLeftIcon, UserCircleIcon, StarIcon, BuildingOffice2Icon, KeyIcon,
+  SparklesIcon,
+  ChatBubbleLeftRightIcon,
   ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/solid';
 import { StarIcon as StarIconOutline } from '@heroicons/react/24/outline';
@@ -24,7 +26,6 @@ const parseCSV = (text) => {
   if (lines.length < 4) return [];
 
   const splitCSV = (row) => row.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || [];
-  
   const headerRow = splitCSV(lines[0]);
   const dateHeaders = headerRow.slice(5).map(d => d.replace(/^[\ufeff"]+|["\r]+$/g, '').trim());
 
@@ -41,44 +42,39 @@ const parseCSV = (text) => {
     const historyData = row.slice(5).map((priceStr, index) => {
       const raw = priceStr ? parseFloat(priceStr.replace(/[",\r]/g, '')) : 0;
       const price = Math.round(raw * 3.3);
-      
       const dateRaw = dateHeaders[index] || "";
-      const yearMatch = dateRaw.match(/(\d{4})/);
-      const monthMatch = dateRaw.match(/(\d{1,2})월/);
-      
-      const year = yearMatch ? parseInt(yearMatch[1]) : 0;
-      const month = monthMatch ? parseInt(monthMatch[1]) : 0;
 
-      const isPredicted = 
-        dateRaw.includes('25년 6월') || dateRaw.includes('25년 7월') || 
-        dateRaw.includes('25년 8월') || dateRaw.includes('25년 9월') || 
-        dateRaw.includes('25년 10월') || dateRaw.includes('25년 11월');
+      // 날짜 파싱
+      const nums = dateRaw.match(/\d+/g);
+      let year = 0, month = 0;
+      if (nums && nums.length >= 2) {
+          year = parseInt(nums[0]);
+          if (year < 100) year += 2000;
+          month = parseInt(nums[1]);
+      }
+
+      // [핵심 수정] 
+      // 기존: (year === 2025 && month >= 6) 조건 때문에 9,10,11월이 죽었음.
+      // 수정: 오직 '예측' 텍스트가 있거나, 명백한 미래(25년 12월 이상)인 경우만 예측으로 간주
+      const isPredicted = dateRaw.includes('예측') || (year === 2025 && month >= 12) || (year > 2025);
 
       return {
-        originalDate: dateRaw,
         displayDate: `${year}.${String(month).padStart(2, '0')}`,
-        year: year,
-        month: month,
-        price: price,
-        isPredicted: isPredicted
+        year, month, price, isPredicted
       };
     });
 
-    if (historyData.length > 0) {
-      const lastPrice = historyData[historyData.length - 1].price;
-      const prevPrice = historyData[historyData.length - 2]?.price || lastPrice;
-      const growth = prevPrice > 0 ? (lastPrice - prevPrice) / prevPrice : 0;
-      const futurePrice = Math.round(lastPrice * (1 + growth));
-      
-      historyData.push({
-        originalDate: "2025년 12월 (예측)",
-        displayDate: "2025.12",
-        year: 2025, month: 12, price: futurePrice, isPredicted: true
-      });
-    }
+    // 0원 제외 및 최신 데이터 찾기
+    const validData = historyData.filter(d => d.price > 0 && !d.isPredicted);
+    
+    // 현재가: 11월 데이터가 있으면 쓰고, 없으면 유효한 마지막 데이터 사용
+    const currentItem = historyData.find(d => d.year === 2025 && d.month === 11) || validData[validData.length - 1];
+    const currentPrice = currentItem ? currentItem.price : 0;
+    
+    // 차트의 마지막(미래 포함)
+    const futurePrice = historyData[historyData.length - 1].price; 
 
-    const currentPrice = historyData.find(d => d.originalDate.includes('25년 11월'))?.price || 0;
-    const futurePrice = historyData[historyData.length - 1].price;
+    // 전월/전년
     const prevMonthPrice = historyData.find(d => d.year === 2025 && d.month === 10)?.price || 0;
     const prevYearPrice = historyData.find(d => d.year === 2024 && d.month === 11)?.price || 0;
 
@@ -88,13 +84,9 @@ const parseCSV = (text) => {
       id: i,
       region: regionName,
       history: historyData,
-      currentPrice: currentPrice,
-      futurePrice: futurePrice,
-      prevMonthPrice: prevMonthPrice,
-      prevYearPrice: prevYearPrice
+      currentPrice, futurePrice, prevMonthPrice, prevYearPrice
     });
   }
-
   return parsedData;
 };
 
@@ -349,8 +341,9 @@ const HeatmapView = ({ data, mode = 'simple' }) => {
  * ==============================================================================
  */
 
-// [수정] 실제 Java 백엔드와 통신하는 API 객체
+// 기존 API_BASE_URL (Java용) 아래에 Python용 주소 추가
 const API_BASE_URL = "http://localhost:8080/api";
+const PYTHON_API_URL = "http://localhost:8000/api"; // [추가] RAG 서버 주소
 
 const api = {
   // 1. 로그인
@@ -405,6 +398,17 @@ const api = {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error("즐겨찾기 조회 실패");
+    return response.json();
+  },
+
+  // [추가] RAG 서버와 통신하는 함수
+  analyzeRegion: async (region, query) => {
+    const response = await fetch(`${PYTHON_API_URL}/rag/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ region, query })
+    });
+    if (!response.ok) throw new Error("AI 분석 실패 (Python 서버 확인 필요)");
     return response.json();
   }
 };
@@ -629,6 +633,61 @@ const FavoritesTab = ({ user, onOpenLogin }) => {
   );
 };
 
+/**
+ * ==============================================================================
+ * [수정됨] 최근 3개월 평균 등락률 기반 예측 함수
+ * ==============================================================================
+ */
+const calculateLinearForecast = (historyData) => {
+  // 1. 유효 데이터 필터링 (0원 제외, 예측값 제외)
+  const validHistory = historyData.filter(d => !d.isPredicted && d.price > 0);
+  
+  if (validHistory.length < 2) return { price: 0, rate: 0, isPositive: false };
+
+  // 2. 날짜 오름차순 정렬 (필수: 과거 -> 현재)
+  validHistory.sort((a, b) => {
+      if (a.year !== b.year) return a.year - b.year;
+      return a.month - b.month;
+  });
+
+  // 3. 최근 1년(12개월) 데이터 추출
+  // 데이터가 12개보다 적으면 있는 것만 사용
+  const recentData = validHistory.slice(-12);
+  const n = recentData.length;
+
+  // 4. 선형 회귀 계산 (Least Squares Method)
+  // x: 0, 1, 2... (시간), y: 가격
+  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  
+  recentData.forEach((d, i) => {
+      sumX += i;
+      sumY += d.price;
+      sumXY += i * d.price;
+      sumXX += i * i;
+  });
+
+  const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+  const intercept = (sumY - slope * sumX) / n;
+
+  // 5. 다음 달(n번째 인덱스) 예측
+  const nextIndex = n; 
+  let predictedPrice = Math.round(slope * nextIndex + intercept);
+
+  // 6. 등락률 계산 (마지막 실제 가격 대비)
+  const lastActualPrice = recentData[n - 1].price;
+  const rate = ((predictedPrice - lastActualPrice) / lastActualPrice * 100);
+
+  return {
+      price: predictedPrice,
+      rate: isNaN(rate) ? 0 : rate.toFixed(2),
+      isPositive: rate > 0
+  };
+};
+/**
+ * ==============================================================================
+ * [LegacyDashboard] 수정된 예측 로직 적용
+ * ==============================================================================
+ */
 const LegacyDashboard = ({ data }) => {
   const [selectedRegion, setSelectedRegion] = useState(null);
   const [isRegionSearchOpen, setIsRegionSearchOpen] = useState(false);
@@ -637,12 +696,41 @@ const LegacyDashboard = ({ data }) => {
   const [sortConfig, setSortConfig] = useState({ key: 'currentPrice', direction: 'desc' });
   const searchInputRef = useRef(null);
 
+  // AI 상태
+  const [aiAnalysis, setAiAnalysis] = useState("");
+  const [isAiLoading, setIsAiLoading] = useState(false);
+
   useEffect(() => {
     if (data.length > 0 && !selectedRegion) {
-      setSelectedRegion(data.find(d => d.region === '전국') || data[0]);
+      const defaultRegion = data.find(d => d.region === '전국') || data[0];
+      setSelectedRegion(defaultRegion);
     }
-  }, [data]);
+  }, [data, selectedRegion]);
 
+  useEffect(() => {
+    if (!selectedRegion) return;
+    const fetchAI = async () => {
+      setIsAiLoading(true);
+      setAiAnalysis(""); 
+      try {
+        const res = await api.analyzeRegion(selectedRegion.region, "향후 전망과 투자 가치를 요약해줘");
+        setAiAnalysis(res.result);
+      } catch (err) {
+        setAiAnalysis("분석 서버 연결 실패 (Python 서버 확인 필요)");
+      } finally {
+        setIsAiLoading(false);
+      }
+    };
+    fetchAI();
+  }, [selectedRegion]);
+
+  // 카드 표시용 예측 데이터
+  const predictionInfo = useMemo(() => {
+      if (!selectedRegion || !selectedRegion.history) return { price: 0, rate: 0, isPositive: false };
+      return calculateLinearForecast(selectedRegion.history);
+  }, [selectedRegion]);
+
+  // 검색 제안
   const searchSuggestions = useMemo(() => {
       if (!regionSearchQuery) return [];
       return data.filter(item => item.region.includes(regionSearchQuery)).slice(0, 10);
@@ -655,7 +743,7 @@ const LegacyDashboard = ({ data }) => {
   };
 
   const chartData = useMemo(() => {
-      if (!selectedRegion) return [];
+      if (!selectedRegion || !selectedRegion.history) return [];
       return viewMode === 'ALL' ? selectedRegion.history : selectedRegion.history.filter(d => d.year === parseInt(viewMode));
   }, [selectedRegion, viewMode]);
 
@@ -664,17 +752,25 @@ const LegacyDashboard = ({ data }) => {
       const prices = chartData.map(d => d.price);
       const min = Math.min(...prices);
       const max = Math.max(...prices);
-      return [Math.max(0, min - 1000000), max + 1000000];
+      return [Math.max(0, min - (min * 0.1)), max + (max * 0.05)];
   }, [chartData]);
 
-  const getTrendRate = (base, current) => base ? ((current - base) / base * 100).toFixed(1) : 0;
-  const trendPrediction = selectedRegion ? getTrendRate(selectedRegion.currentPrice, selectedRegion.futurePrice) : 0;
-  const trendMoM = selectedRegion ? getTrendRate(selectedRegion.prevMonthPrice, selectedRegion.currentPrice) : 0;
-  const trendYoY = selectedRegion ? getTrendRate(selectedRegion.prevYearPrice, selectedRegion.currentPrice) : 0;
+  const trendMoM = selectedRegion && selectedRegion.prevMonthPrice ? ((selectedRegion.currentPrice - selectedRegion.prevMonthPrice)/selectedRegion.prevMonthPrice * 100).toFixed(1) : 0;
+  const trendYoY = selectedRegion && selectedRegion.prevYearPrice ? ((selectedRegion.currentPrice - selectedRegion.prevYearPrice)/selectedRegion.prevYearPrice * 100).toFixed(1) : 0;
   const availableYears = Array.from({ length: 2025 - 2012 + 1 }, (_, i) => 2012 + i);
 
+  // [수정] 리스트 데이터 처리 (예측값 및 등락률 미리 계산)
   const processedData = useMemo(() => {
-      let result = [...data];
+      let result = data.map(item => {
+          const forecast = calculateLinearForecast(item.history);
+          return {
+              ...item,
+              forecastPrice: forecast.price,
+              forecastRate: parseFloat(forecast.rate), // 정렬을 위해 숫자로 변환
+              isForecastPositive: forecast.isPositive
+          };
+      });
+
       if (sortConfig.key) {
         result.sort((a, b) => {
           let aValue = a[sortConfig.key];
@@ -693,11 +789,12 @@ const LegacyDashboard = ({ data }) => {
       setSortConfig({ key, direction: dir });
   };
 
-  if (!selectedRegion) return <div>데이터를 불러오는 중입니다...</div>;
+  if (!selectedRegion) return <div className="p-10 text-center text-gray-400">데이터 로딩 중...</div>;
 
   return (
-    <>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
+    <div className="space-y-6 pb-10">
+      {/* 1. 상단 카드 영역 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <div className="relative h-full">
           {!isRegionSearchOpen ? (
             <div onClick={() => setIsRegionSearchOpen(true)} className="h-full p-6 rounded-3xl shadow-sm border border-gray-100/50 bg-white flex flex-col justify-between cursor-pointer hover:border-blue-300 transition-all group">
@@ -725,6 +822,7 @@ const LegacyDashboard = ({ data }) => {
                   value={regionSearchQuery}
                   onChange={(e) => setRegionSearchQuery(e.target.value)}
                   onBlur={() => setTimeout(() => setIsRegionSearchOpen(false), 200)}
+                  autoFocus
                 />
                 <button onClick={() => setIsRegionSearchOpen(false)}><XMarkIcon className="w-6 h-6 text-gray-400" /></button>
               </div>
@@ -752,29 +850,40 @@ const LegacyDashboard = ({ data }) => {
           </div>
         </div>
 
-        <StatCard 
-          title="예측 평당가 (25.12)" 
-          value={`${selectedRegion.futurePrice.toLocaleString()}원`}
-          trend={{ value: trendPrediction, isPositive: parseFloat(trendPrediction) > 0 }}
-          isPrediction
-          subtext="AI 분석 결과"
-        />
+        {/* [수정됨] 예측가 카드 (색상 적용) */}
+        <div className="p-6 rounded-3xl shadow-sm border border-gray-100/50 bg-gradient-to-br from-indigo-50 to-white flex flex-col justify-between">
+           <div>
+             <div className="flex justify-between items-center mb-2">
+                <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider">다음 달 예측 (25.12)</h3>
+                <span className={`text-xs font-bold flex items-center px-2 py-0.5 rounded-full ${predictionInfo.isPositive ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500'}`}>
+                    {predictionInfo.isPositive ? '+' : ''}{predictionInfo.rate}%
+                    <ArrowTrendingUpIcon className={`w-3 h-3 ml-1 ${predictionInfo.isPositive ? '' : 'rotate-180'}`} />
+                </span>
+             </div>
+             <span className="text-2xl font-bold text-gray-900 tracking-tight block mb-4">
+                {predictionInfo.price.toLocaleString()}원
+             </span>
+             <p className="text-xs text-indigo-500 font-bold bg-indigo-100 inline-block px-2 py-1 rounded-full">
+                최근 1년 선형 회귀 분석
+             </p>
+           </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-auto mb-6">
-        <div className="lg:col-span-2 bg-white rounded-3xl p-7 flex flex-col shadow-sm border border-gray-100/50">
+      {/* 2. 차트 & AI */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 h-[420px]">
+        {/* 차트 */}
+        <div className="lg:col-span-3 bg-white rounded-3xl p-7 flex flex-col shadow-sm border border-gray-100/50">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold mb-1">{selectedRegion?.region} 가격 추이</h2>
+            <h2 className="text-xl font-bold mb-1 text-gray-900">{selectedRegion?.region} 가격 추이</h2>
             <div className="flex items-center bg-gray-100 rounded-lg px-3 py-1.5 border border-gray-200">
               <FunnelIcon className="w-4 h-4 text-gray-500 mr-2" />
-              <span className="text-xs font-semibold text-gray-500 mr-2">기간:</span>
               <select value={viewMode} onChange={(e) => setViewMode(e.target.value)} className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer">
                 <option value="ALL">전체 기간</option>
                 {availableYears.map(y => <option key={y} value={y}>{y}년</option>)}
               </select>
             </div>
           </div>
-          {/* Recharts Warning Fix: Ensure parent has height */}
           <div className="flex-1 w-full h-[300px]"> 
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
@@ -787,45 +896,143 @@ const LegacyDashboard = ({ data }) => {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                 <XAxis dataKey="displayDate" axisLine={false} tickLine={false} tick={{fontSize: 11, fill: '#94a3b8'}} minTickGap={30} />
                 <YAxis domain={yAxisDomain} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v/10000).toFixed(0)}만`} tick={{fontSize: 11, fill: '#94a3b8'}} width={45} />
-                <RechartsTooltip contentStyle={{ backgroundColor: '#fff', borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px' }} formatter={(value) => [`${value.toLocaleString()}원`, '평당가']} />
+                <RechartsTooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} formatter={(value) => [`${value.toLocaleString()}원`, '평당가']} />
                 <Area type="monotone" dataKey="price" stroke="#3B82F6" strokeWidth={3} fill="url(#colorPrice)" animationDuration={1000} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl flex flex-col shadow-sm border border-gray-100/50 overflow-hidden lg:col-span-2 lg:min-h-[320px]">
-          <div className="p-5 pb-3 bg-white sticky top-0 z-10 border-b border-gray-50">
-            <h3 className="font-bold text-gray-800">지역별 시세 목록 (Top 50)</h3>
-          </div>
-          <div className="flex-1 overflow-y-auto max-h-[520px]">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 sticky top-0 z-10 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                <tr>
-                  <th className="px-4 py-3 cursor-pointer" onClick={() => handleSort('region')}>지역 <ChevronUpDownIcon className="w-3 h-3 inline" /></th>
-                  <th className="px-4 py-3 text-right cursor-pointer" onClick={() => handleSort('currentPrice')}>현재가 <ChevronUpDownIcon className="w-3 h-3 inline" /></th>
-                  <th className="px-4 py-3 text-right">예측가</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {processedData.map((item) => (
-                  <tr key={item.id} onClick={() => handleRegionSelect(item)} className={`cursor-pointer transition-all ${selectedRegion?.id === item.id ? 'bg-blue-50/60' : 'hover:bg-gray-50'}`}>
-                    <td className="px-4 py-3 font-medium whitespace-normal break-words">{item.region}</td>
-                    <td className="px-4 py-3 text-right font-bold">{item.currentPrice.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right text-gray-500">{item.futurePrice.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {/* AI */}
+        <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-purple-100 flex flex-col relative overflow-hidden">
+            <div className="p-5 border-b border-purple-50 bg-purple-50/30 flex justify-between items-center">
+                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                    <SparklesIcon className="w-5 h-5 text-purple-600" />
+                    AI 지역 분석 리포트
+                </h3>
+                {isAiLoading && <span className="text-xs font-bold text-purple-600 bg-purple-100 px-2 py-1 rounded-full animate-pulse">분석 중...</span>}
+            </div>
+            <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-gradient-to-b from-white to-purple-50/10">
+                {isAiLoading ? (
+                    <div className="space-y-4 animate-pulse">
+                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                        <div className="h-4 bg-gray-200 rounded w-full"></div>
+                        <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+                        <div className="h-32 bg-gray-100 rounded-xl mt-4"></div>
+                    </div>
+                ) : aiAnalysis ? (
+                    <div className="prose prose-sm prose-purple max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap">
+                        {aiAnalysis}
+                    </div>
+                ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-gray-400 text-center">
+                        <ChatBubbleLeftRightIcon className="w-12 h-12 mb-2 opacity-20" />
+                        <p className="text-sm">지역을 선택하면<br/>2025 리포트 기반 분석이 표시됩니다.</p>
+                    </div>
+                )}
+            </div>
         </div>
       </div>
-      
-      {/* 기존 히트맵 영역 */}
-      <div className="h-[600px] w-full">
-         <HeatmapView data={data} mode="simple" />
+
+      {/* 3. 하단 리스트 */}
+      <div className="bg-white rounded-3xl flex flex-col shadow-sm border border-gray-100/50 overflow-hidden min-h-[320px]">
+        <div className="p-5 pb-3 bg-white sticky top-0 z-10 border-b border-gray-50">
+          <h3 className="font-bold text-gray-800">지역별 시세 목록 (Top 50)</h3>
+        </div>
+        <div className="flex-1 overflow-y-auto max-h-[400px]">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-gray-50 sticky top-0 z-10 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <tr>
+                <th className="px-6 py-4 cursor-pointer" onClick={() => handleSort('region')}>지역 <ChevronUpDownIcon className="w-3 h-3 inline" /></th>
+                <th className="px-6 py-4 text-right cursor-pointer" onClick={() => handleSort('currentPrice')}>현재가 <ChevronUpDownIcon className="w-3 h-3 inline" /></th>
+                <th className="px-6 py-4 text-right cursor-pointer" onClick={() => handleSort('forecastPrice')}>다음달 예측가 <ChevronUpDownIcon className="w-3 h-3 inline" /></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {processedData.map((item) => (
+                <tr key={item.id} onClick={() => handleRegionSelect(item)} className={`cursor-pointer transition-all ${selectedRegion?.id === item.id ? 'bg-purple-50/60' : 'hover:bg-gray-50'}`}>
+                  <td className="px-6 py-4 font-medium whitespace-normal break-words flex items-center gap-2">
+                    {item.region}
+                    {selectedRegion?.id === item.id && <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>}
+                  </td>
+                  <td className="px-6 py-4 text-right font-bold">{item.currentPrice.toLocaleString()}</td>
+                  
+                  {/* [수정됨] 색상 로직 적용된 예측가 컬럼 */}
+                  <td className={`px-6 py-4 text-right font-bold ${
+                      item.isForecastPositive ? 'text-red-600' : (item.forecastPrice < item.currentPrice ? 'text-blue-600' : 'text-gray-500')
+                  }`}>
+                    {item.forecastPrice > 0 ? (
+                        <>
+                            {item.forecastPrice.toLocaleString()}원
+                            <span className="text-xs ml-1 font-normal opacity-80">
+                                ({item.forecastRate > 0 ? '+' : ''}{item.forecastRate}%)
+                            </span>
+                        </>
+                    ) : '-'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </>
+    </div>
+  );
+};
+
+/**
+ * ==============================================================================
+ * [추가] AI 분석 탭 컴포넌트
+ * ==============================================================================
+ */
+
+const AIAnalysisTab = () => {
+  const [region, setRegion] = useState('');
+  const [result, setResult] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleAnalyze = async (e) => {
+    e.preventDefault();
+    if (!region) return;
+    setLoading(true);
+    setResult('');
+    
+    try {
+      const data = await api.analyzeRegion(region, "");
+      setResult(data.result);
+    } catch (err) {
+      setResult("오류 발생: Python(8000) 서버가 켜져있는지 확인해주세요.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full min-h-[600px]">
+      {/* 입력 영역 */}
+      <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 flex flex-col justify-center">
+        <div className="mb-8">
+          <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-purple-500/30 mb-6">
+            <SparklesIcon className="w-8 h-8 text-white animate-pulse" />
+          </div>
+          <h2 className="text-3xl font-bold text-gray-900 mb-3">AI 부동산 비서</h2>
+          <p className="text-gray-500">2025 부동산 보고서를 기반으로 지역 전망을 분석합니다.</p>
+        </div>
+        <form onSubmit={handleAnalyze} className="space-y-4">
+          <input type="text" className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-6 py-4 text-lg font-bold outline-none focus:ring-2 focus:ring-purple-500 transition-all" placeholder="예: 서울시 강남구" value={region} onChange={(e) => setRegion(e.target.value)} />
+          <button disabled={loading} className="w-full bg-gray-900 text-white font-bold py-4 rounded-2xl shadow-xl hover:bg-gray-800 transition-all flex items-center justify-center gap-2 disabled:bg-gray-300">
+            {loading ? "분석 중..." : "AI 분석 시작하기"}
+          </button>
+        </form>
+      </div>
+      {/* 결과 영역 */}
+      <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 flex flex-col relative overflow-hidden">
+        <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2"><ChatBubbleLeftRightIcon className="w-6 h-6 text-gray-400" />분석 결과</h3>
+        <div className="flex-1 overflow-y-auto pr-2 whitespace-pre-wrap text-gray-700 leading-relaxed">
+            {result || <div className="text-gray-300 text-center mt-20">지역을 입력하면 AI가 답변해줍니다.</div>}
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -878,7 +1085,7 @@ export default function RealEstateDashboard() {
           <div className="px-2 mb-2 text-xs font-bold text-gray-400 uppercase tracking-wider">분석</div>
           <NavItem icon={HomeIcon} text="대시보드" active={currentTab === 'dashboard'} onClick={() => setCurrentTab('dashboard')} />
           <NavItem icon={MapIcon} text="전국 시세 지도" active={currentTab === 'map'} onClick={() => setCurrentTab('map')} />
-          
+          <NavItem icon={SparklesIcon} text="AI 부동산 비서" active={currentTab === 'ai'} onClick={() => setCurrentTab('ai')} />
           <div className="px-2 mb-2 mt-8 text-xs font-bold text-gray-400 uppercase tracking-wider">실거래 서비스</div>
           <NavItem icon={BuildingOffice2Icon} text="실거래 찾기" active={currentTab === 'realtrade'} onClick={() => setCurrentTab('realtrade')} />
           <NavItem icon={StarIcon} text="마이 홈 (즐겨찾기)" active={currentTab === 'favorites'} onClick={() => setCurrentTab('favorites')} />
@@ -892,11 +1099,12 @@ export default function RealEstateDashboard() {
             <h1 className="text-2xl font-bold text-gray-900">
               {currentTab === 'dashboard' && '부동산 시장 동향'}
               {currentTab === 'map' && '지역별 시세 분석'}
+              {currentTab === 'ai' && 'AI 부동산 전망 분석'} {/* [추가] */}
               {currentTab === 'realtrade' && '실거래가 조회'}
               {currentTab === 'favorites' && '나의 관심 매물'}
             </h1>
             <p className="text-sm text-gray-500 font-medium mt-1">
-                {currentTab === 'dashboard' ? 'CSV 데이터 기반 분석' : 'API 서비스 연동'}
+                {currentTab === 'dashboard' ? '데이터 기반 분석' : 'API 서비스 연동'}
             </p>
           </div>
           
@@ -939,6 +1147,7 @@ export default function RealEstateDashboard() {
                         <HeatmapView data={csvData} mode="interactive" />
                     </div>
                 )}
+                {currentTab === 'ai' && <AIAnalysisTab />}
                 {currentTab === 'realtrade' && <RealTradeTab user={user} onOpenLogin={() => setIsLoginModalOpen(true)} />}
                 {currentTab === 'favorites' && <FavoritesTab user={user} onOpenLogin={() => setIsLoginModalOpen(true)} />}
             </div>
