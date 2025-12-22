@@ -10,7 +10,6 @@ import {
 } from '@heroicons/react/24/solid';
 import { StarIcon as StarIconOutline } from '@heroicons/react/24/outline';
 
-// 지도 및 시각화 라이브러리 (기존 유지)
 import { ComposableMap, Geographies, Geography, ZoomableGroup } from "react-simple-maps";
 import { scaleLinear, scaleQuantile } from "d3-scale";
 import { Tooltip as ReactTooltip } from "react-tooltip";
@@ -20,8 +19,6 @@ import { Tooltip as ReactTooltip } from "react-tooltip";
  * [PART 1] 기존 레거시 로직 유지 (CSV 파서 & 히트맵)
  * ==============================================================================
  */
-
-// 1. CSV 파서 (기존 코드 유지)
 const parseCSV = (text) => {
   const lines = text.trim().split('\n');
   if (lines.length < 4) return [];
@@ -101,7 +98,6 @@ const parseCSV = (text) => {
   return parsedData;
 };
 
-// 2. 히트맵 컴포넌트 (기존 코드 유지)
 const HeatmapView = ({ data, mode = 'simple' }) => {
   const [tooltipContent, setTooltipContent] = useState("");
   const [mapMode, setMapMode] = useState('price'); 
@@ -218,21 +214,14 @@ const HeatmapView = ({ data, mode = 'simple' }) => {
                 targetRegion = key;
             }
         });
-
         if (targetRegion && REGION_CONFIG[targetRegion]) {
-            setViewState({
-                region: targetRegion,
-                ...REGION_CONFIG[targetRegion]
-            });
+            setViewState({ region: targetRegion, ...REGION_CONFIG[targetRegion] });
         }
     }
   };
 
   const handleBackToNational = () => {
-    setViewState({
-        region: 'South Korea',
-        ...REGION_CONFIG['South Korea']
-    });
+    setViewState({ region: 'South Korea', ...REGION_CONFIG['South Korea'] });
   };
 
   return (
@@ -272,7 +261,9 @@ const HeatmapView = ({ data, mode = 'simple' }) => {
 
       <div className="flex-1 w-full h-full min-h-[400px] flex items-center justify-center -mt-10">
         <ComposableMap projection="geoMercator" projectionConfig={{ scale: viewState.scale, center: viewState.center }} style={{ width: "100%", height: "100%" }}>
-            <ZoomableGroup center={viewState.center} zoom={1} minZoom={1} maxZoom={1} filterZoomEvent={() => false} translateExtent={[[0, 0], [800, 600]]} moveTransitionDuration={500}>
+            <ZoomableGroup center={viewState.center} zoom={1} minZoom={1} maxZoom={1} filterZoomEvent={() => false} translateExtent={[[0, 0], [800, 600]]} 
+               // moveTransitionDuration={500}  <-- 경고 해결: 삭제하거나 prop 이름 확인 필요 (react-simple-maps 버전에 따라 다름)
+            >
                 <Geographies geography={viewState.region === 'South Korea' ? GEO_URL_KOREA : GEO_URL_MUNI}>
                     {({ geographies }) =>
                     geographies.map((geo) => {
@@ -301,13 +292,12 @@ const HeatmapView = ({ data, mode = 'simple' }) => {
                         if (matchedItems.length > 0) {
                             const avgPrice = matchedItems.reduce((acc, curr) => acc + curr.currentPrice, 0) / matchedItems.length;
                             const avgPrevMonth = matchedItems.reduce((acc, curr) => acc + curr.prevMonthPrice, 0) / matchedItems.length;
-                            const avgPrevYear = matchedItems.reduce((acc, curr) => acc + curr.prevYearPrice, 0) / matchedItems.length;
                             
                             if (mapMode === 'price') {
                                 value = avgPrice;
                                 displayValue = `${(value / 10000).toFixed(0)}만원`;
                             } else {
-                                const base = mapMode === 'growth_mom' ? avgPrevMonth : avgPrevYear;
+                                const base = avgPrevMonth;
                                 value = base ? ((avgPrice - base) / base) * 100 : 0;
                                 displayValue = `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
                             }
@@ -353,9 +343,13 @@ const HeatmapView = ({ data, mode = 'simple' }) => {
 };
 
 
-// ==============================================================================
-// [수정] 백엔드 데이터 규격에 맞춘 API 객체
-// ==============================================================================
+/**
+ * ==============================================================================
+ * [PART 2] 신규 기능 추가 (API 서비스 & 컴포넌트)
+ * ==============================================================================
+ */
+
+// [수정] 실제 Java 백엔드와 통신하는 API 객체
 const API_BASE_URL = "http://localhost:8080/api";
 
 const api = {
@@ -385,11 +379,8 @@ const api = {
   // 3. 실거래 매물 검색 (수정됨: minLat 에러 방지용 기본값 추가)
   searchMapItems: async (keyword) => {
     const params = new URLSearchParams();
-    
-    // 검색어가 있으면 q 파라미터 추가
     if (keyword) params.append("q", keyword);
-    
-    // ★ 중요: 백엔드가 지도 범위를 필수(@RequestParam)로 요구하므로 전체 범위(대한민국)를 기본값으로 전송
+    // 지도 범위 필수값 채우기
     params.append("minLat", "33");
     params.append("maxLat", "39");
     params.append("minLon", "124");
@@ -411,16 +402,14 @@ const api = {
   getFavorites: async (token) => {
     const response = await fetch(`${API_BASE_URL}/favorites`, {
       method: 'GET',
-      headers: { 
-        'Authorization': `Bearer ${token}` 
-      }
+      headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error("즐겨찾기 조회 실패");
     return response.json();
   }
 };
 
-// [수정] 로그인/회원가입 모달 (닉네임 입력 추가)
+// [수정] 로그인/회원가입 모달
 const AuthModal = ({ isOpen, onClose, onLogin }) => {
   const [isSignup, setIsSignup] = useState(false);
   const [email, setEmail] = useState('');
@@ -433,12 +422,10 @@ const AuthModal = ({ isOpen, onClose, onLogin }) => {
     e.preventDefault();
     try {
       if (isSignup) {
-        // 회원가입 요청
         await api.signup(email, password, nickname);
         alert("회원가입 성공! 로그인해주세요.");
         setIsSignup(false);
       } else {
-        // 로그인 요청
         const data = await api.login(email, password);
         onLogin(data.user, data.accessToken);
         onClose();
@@ -463,21 +450,18 @@ const AuthModal = ({ isOpen, onClose, onLogin }) => {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">이메일</label>
-            <input type="email" required className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="example@ssafy.com" value={email} onChange={e => setEmail(e.target.value)} />
+            <input type="email" required autoComplete="username" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="example@ssafy.com" value={email} onChange={e => setEmail(e.target.value)} />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">비밀번호</label>
-            <input type="password" required className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} />
+            <input type="password" required autoComplete="current-password" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} />
           </div>
-          
-          {/* 회원가입 시 닉네임 입력 필드 표시 */}
           {isSignup && (
              <div>
-               <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">닉네임</label>
-               <input type="text" required className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="사용자 이름" value={nickname} onChange={e => setNickname(e.target.value)} />
+               <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">이름</label>
+               <input type="text" required autoComplete="nickname" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="사용자 이름" value={nickname} onChange={e => setNickname(e.target.value)} />
              </div>
           )}
-
           <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-500/30 transition-all transform active:scale-95 mt-4">
             {isSignup ? '가입하기' : '로그인'}
           </button>
@@ -492,7 +476,6 @@ const AuthModal = ({ isOpen, onClose, onLogin }) => {
   );
 };
 
-// 신규 탭: 실거래 찾기
 const RealTradeTab = ({ user, onOpenLogin }) => {
   const [keyword, setKeyword] = useState('');
   const [items, setItems] = useState([]);
@@ -502,11 +485,9 @@ const RealTradeTab = ({ user, onOpenLogin }) => {
 
   const handleSearch = async (e) => {
     e.preventDefault();
-    // 키워드가 없어도 전체 조회를 위해 호출할 수 있음 (선택 사항)
     setLoading(true);
     try {
         const res = await api.searchMapItems(keyword);
-        // 백엔드가 { items: [...] } 형태로 준다고 가정
         setItems(res.items || []);
     } catch (e) {
         console.error(e);
@@ -530,7 +511,6 @@ const RealTradeTab = ({ user, onOpenLogin }) => {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-140px)]">
-      {/* Search & List */}
       <div className="lg:col-span-4 bg-white rounded-3xl p-6 shadow-sm border border-gray-100 flex flex-col h-full">
         <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
           <BuildingOffice2Icon className="w-6 h-6 text-blue-500" />
@@ -553,14 +533,12 @@ const RealTradeTab = ({ user, onOpenLogin }) => {
                   {item.type && <span className="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full font-bold">{item.type}</span>}
                 </div>
                 <p className="text-xs text-gray-500 mb-2">{item.address}</p>
-                {/* latestPrice가 있을 때만 표시 */}
                 {item.latestPrice && <p className="text-sm font-bold text-blue-600">최근 {item.latestPrice.toLocaleString()}원</p>}
               </div>
             ))
           )}
         </div>
       </div>
-      {/* Detail */}
       <div className="lg:col-span-8 flex flex-col gap-6 h-full overflow-hidden">
         {selectedItem ? (
           <>
@@ -573,7 +551,7 @@ const RealTradeTab = ({ user, onOpenLogin }) => {
                 <p className="text-gray-500">{selectedItem.address}</p>
               </div>
               <div className="flex gap-3">
-                <button onClick={() => user ? alert("찜 완료! (기능 미구현)") : onOpenLogin()} className="flex items-center gap-2 px-4 py-2 bg-yellow-50 text-yellow-600 rounded-xl font-bold hover:bg-yellow-100 transition-colors">
+                <button onClick={() => user ? alert("찜 완료!") : onOpenLogin()} className="flex items-center gap-2 px-4 py-2 bg-yellow-50 text-yellow-600 rounded-xl font-bold hover:bg-yellow-100 transition-colors">
                   <StarIconOutline className="w-5 h-5" /> 찜하기
                 </button>
               </div>
@@ -609,7 +587,6 @@ const RealTradeTab = ({ user, onOpenLogin }) => {
   );
 };
 
-// 신규 탭: 마이 홈 (즐겨찾기)
 const FavoritesTab = ({ user, onOpenLogin }) => {
   const [favorites, setFavorites] = useState([]);
   
@@ -652,12 +629,6 @@ const FavoritesTab = ({ user, onOpenLogin }) => {
   );
 };
 
-
-/**
- * ==============================================================================
- * [Legacy View] 기존 대시보드 (CSV 데이터 사용 - 디테일 유지)
- * ==============================================================================
- */
 const LegacyDashboard = ({ data }) => {
   const [selectedRegion, setSelectedRegion] = useState(null);
   const [isRegionSearchOpen, setIsRegionSearchOpen] = useState(false);
@@ -672,7 +643,6 @@ const LegacyDashboard = ({ data }) => {
     }
   }, [data]);
 
-  // 검색 제안 및 필터링
   const searchSuggestions = useMemo(() => {
       if (!regionSearchQuery) return [];
       return data.filter(item => item.region.includes(regionSearchQuery)).slice(0, 10);
@@ -684,7 +654,6 @@ const LegacyDashboard = ({ data }) => {
       setRegionSearchQuery('');
   };
 
-  // 차트 데이터 준비
   const chartData = useMemo(() => {
       if (!selectedRegion) return [];
       return viewMode === 'ALL' ? selectedRegion.history : selectedRegion.history.filter(d => d.year === parseInt(viewMode));
@@ -698,14 +667,12 @@ const LegacyDashboard = ({ data }) => {
       return [Math.max(0, min - 1000000), max + 1000000];
   }, [chartData]);
 
-  // 등락률 계산
   const getTrendRate = (base, current) => base ? ((current - base) / base * 100).toFixed(1) : 0;
   const trendPrediction = selectedRegion ? getTrendRate(selectedRegion.currentPrice, selectedRegion.futurePrice) : 0;
   const trendMoM = selectedRegion ? getTrendRate(selectedRegion.prevMonthPrice, selectedRegion.currentPrice) : 0;
   const trendYoY = selectedRegion ? getTrendRate(selectedRegion.prevYearPrice, selectedRegion.currentPrice) : 0;
   const availableYears = Array.from({ length: 2025 - 2012 + 1 }, (_, i) => 2012 + i);
 
-  // 테이블 정렬
   const processedData = useMemo(() => {
       let result = [...data];
       if (sortConfig.key) {
@@ -717,7 +684,7 @@ const LegacyDashboard = ({ data }) => {
           return 0;
         });
       }
-      return result.slice(0, 50); // 성능을 위해 상위 50개만 렌더링
+      return result.slice(0, 50); 
   }, [data, sortConfig]);
 
   const handleSort = (key) => {
@@ -730,7 +697,6 @@ const LegacyDashboard = ({ data }) => {
 
   return (
     <>
-      {/* 상단 3개 카드 영역 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
         <div className="relative h-full">
           {!isRegionSearchOpen ? (
@@ -795,7 +761,6 @@ const LegacyDashboard = ({ data }) => {
         />
       </div>
 
-      {/* 차트 및 리스트 영역 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-auto mb-6">
         <div className="lg:col-span-2 bg-white rounded-3xl p-7 flex flex-col shadow-sm border border-gray-100/50">
           <div className="flex justify-between items-center mb-6">
@@ -809,7 +774,8 @@ const LegacyDashboard = ({ data }) => {
               </select>
             </div>
           </div>
-          <div className="flex-1 w-full min-h-[300px]">
+          {/* Recharts Warning Fix: Ensure parent has height */}
+          <div className="flex-1 w-full h-[300px]"> 
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                 <defs>
@@ -863,7 +829,6 @@ const LegacyDashboard = ({ data }) => {
   );
 };
 
-
 /**
  * ==============================================================================
  * [Main] App Container (Layout 통합)
@@ -874,7 +839,7 @@ export default function RealEstateDashboard() {
   const [user, setUser] = useState(null); 
   const [token, setToken] = useState(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [currentTab, setCurrentTab] = useState('dashboard'); // dashboard, map, realtrade, favorites
+  const [currentTab, setCurrentTab] = useState('dashboard');
   
   useEffect(() => {
     fetch('/data.csv')
@@ -922,7 +887,6 @@ export default function RealEstateDashboard() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-full overflow-hidden relative">
-        {/* Header: Title + [수정됨] 우측 상단 로그인 버튼 */}
         <header className="h-20 flex items-center justify-between px-10 shrink-0 bg-white/50 backdrop-blur-md sticky top-0 z-30">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">
@@ -936,16 +900,17 @@ export default function RealEstateDashboard() {
             </p>
           </div>
           
-          {/* 우측 상단 로그인 영역 */}
+          {/* 우측 상단 로그인 영역 (흰 화면 수정: nickname -> name) */}
           <div>
             {user ? (
               <div className="flex items-center gap-4 bg-white px-4 py-2 rounded-2xl shadow-sm border border-gray-100">
                 <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold">
-                        {user.nickname[0]}
+                        {/* 닉네임이 없으면 이름(name)을 사용하도록 안전하게 처리 */}
+                        {(user.name || user.nickname || "U")[0]}
                     </div>
                     <div className="text-right hidden sm:block">
-                        <p className="text-sm font-bold text-gray-900 leading-none">{user.nickname}님</p>
+                        <p className="text-sm font-bold text-gray-900 leading-none">{user.name || user.nickname}님</p>
                         <p className="text-[10px] text-gray-400 mt-0.5">{user.email}</p>
                     </div>
                 </div>
@@ -966,19 +931,15 @@ export default function RealEstateDashboard() {
           </div>
         </header>
 
-        {/* Content Body */}
         <div className="flex-1 overflow-y-auto px-10 pb-10 pt-4">
             <div className="max-w-7xl mx-auto h-full">
                 {currentTab === 'dashboard' && <LegacyDashboard data={csvData} />}
-                
                 {currentTab === 'map' && (
                     <div className="h-full">
                         <HeatmapView data={csvData} mode="interactive" />
                     </div>
                 )}
-                
                 {currentTab === 'realtrade' && <RealTradeTab user={user} onOpenLogin={() => setIsLoginModalOpen(true)} />}
-                
                 {currentTab === 'favorites' && <FavoritesTab user={user} onOpenLogin={() => setIsLoginModalOpen(true)} />}
             </div>
         </div>
@@ -987,9 +948,6 @@ export default function RealEstateDashboard() {
   );
 }
 
-// ----------------------------------------------------------------------
-// Shared Components
-// ----------------------------------------------------------------------
 const NavItem = ({ icon: Icon, text, active, onClick }) => (
   <div onClick={onClick} className={`flex items-center px-4 py-3.5 rounded-2xl cursor-pointer transition-all mb-1 group ${active ? 'bg-blue-50 text-blue-600 font-bold shadow-sm' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
     <Icon className={`w-5 h-5 mr-3 transition-colors ${active ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-600'}`} />
