@@ -7,7 +7,7 @@ import {
   MagnifyingGlassIcon, ChevronUpDownIcon, FunnelIcon, XMarkIcon, 
   ArrowLeftIcon, UserCircleIcon, StarIcon, BuildingOffice2Icon, KeyIcon,
   SparklesIcon,
-  ChatBubbleLeftRightIcon,
+  ChatBubbleLeftRightIcon, BanknotesIcon, CalendarDaysIcon, FireIcon, CurrencyDollarIcon,
   ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/solid';
 import { StarIcon as StarIconOutline } from '@heroicons/react/24/outline';
@@ -147,11 +147,25 @@ const HeatmapView = ({ data, mode = 'simple' }) => {
     return "";
   };
 
-  const legendStats = useMemo(() => {
+  // [NEW] 랭킹 데이터 계산 (Hot Place & Top Price)
+  const rankingData = useMemo(() => {
     const validData = data.filter(d => d.region !== '전국' && d.currentPrice > 0);
-    if (validData.length === 0) return { minPrice: 0, maxPrice: 0 };
-    const prices = validData.map(d => d.currentPrice);
-    return { minPrice: Math.min(...prices), maxPrice: Math.max(...prices) };
+    
+    // 1. 가격순 (내림차순)
+    const topPrice = [...validData]
+        .sort((a, b) => b.currentPrice - a.currentPrice)
+        .slice(0, 5);
+    
+    // 2. 급등순 (전월 대비 상승률 내림차순)
+    const topGrowth = [...validData]
+        .sort((a, b) => {
+            const rateA = a.prevMonthPrice ? (a.currentPrice - a.prevMonthPrice) / a.prevMonthPrice : -999;
+            const rateB = b.prevMonthPrice ? (b.currentPrice - b.prevMonthPrice) / b.prevMonthPrice : -999;
+            return rateB - rateA;
+        })
+        .slice(0, 5);
+
+    return { topPrice, topGrowth };
   }, [data]);
 
   const colorScale = useMemo(() => {
@@ -167,7 +181,7 @@ const HeatmapView = ({ data, mode = 'simple' }) => {
       const prices = validData.map(d => d.currentPrice);
       return scaleQuantile()
         .domain(prices)
-        .range(["#3b82f6", "#60a5fa", "#22c55e", "#84cc16", "#eab308", "#f97316", "#ef4444"]);
+        .range(["#3b82f6", "#60a5fa", "#4ade80", "#facc15", "#fb923c", "#f87171", "#dc2626"]); // 좀 더 다채로운 색상
     } else {
       const growths = validData.map(d => {
         const base = mapMode === 'growth_mom' ? d.prevMonthPrice : d.prevYearPrice;
@@ -179,22 +193,10 @@ const HeatmapView = ({ data, mode = 'simple' }) => {
       maxAbs = Math.min(maxAbs, limit); 
       return scaleLinear()
         .domain([-maxAbs, 0, maxAbs]) 
-        .range(["#1e3a8a", "#ffffff", "#b91c1c"])
+        .range(["#2563eb", "#ffffff", "#dc2626"])
         .clamp(true);
     }
   }, [data, mapMode, viewState.region]);
-
-  const getLegendLabels = () => {
-    if (mapMode === 'price') {
-      const min = (legendStats.minPrice / 10000).toFixed(0);
-      const max = (legendStats.maxPrice / 10000).toFixed(0);
-      return { left: `${min}만원`, right: `${max}만원`, center: '평균' };
-    } else {
-      const limit = mapMode === 'growth_mom' ? 1.5 : 5.0;
-      return { left: `-${limit}% ▼`, right: `+${limit}% ▲`, center: '0%' };
-    }
-  };
-  const labels = getLegendLabels();
 
   const handleGeographyClick = (geo) => {
     if (mode === 'simple') return;
@@ -216,45 +218,63 @@ const HeatmapView = ({ data, mode = 'simple' }) => {
     setViewState({ region: 'South Korea', ...REGION_CONFIG['South Korea'] });
   };
 
+  // [NEW] 레이아웃 변경: Flex (Map Area + Ranking Sidebar)
   return (
-    <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100/50 h-full flex flex-col relative overflow-hidden">
-      <div className="flex justify-between items-start z-10 relative">
-        <div className='flex flex-col items-start'>
-          <div className='flex items-center gap-2'>
+    <div className="bg-gray-50 rounded-3xl overflow-hidden shadow-sm border border-gray-200 h-full min-h-[600px] flex">
+      
+      {/* 1. 메인 지도 영역 (좌측) */}
+      <div className="flex-1 relative bg-gradient-to-br from-blue-50/30 to-indigo-50/30">
+        
+        {/* [NEW] 글래스모피즘 플로팅 컨트롤 (좌측 상단) */}
+        <div className="absolute top-6 left-6 z-20 flex flex-col gap-3">
+             <div className="bg-white/80 backdrop-blur-md p-1.5 rounded-2xl shadow-lg border border-white/50 flex flex-col gap-1">
+                {['price', 'growth_mom', 'growth_yoy'].map((m) => (
+                    <button 
+                        key={m} 
+                        onClick={() => setMapMode(m)} 
+                        className={`px-4 py-2 text-xs font-bold rounded-xl transition-all text-left flex items-center gap-2
+                        ${mapMode === m 
+                            ? (m === 'price' ? 'bg-blue-600 text-white shadow-md' : 'bg-red-500 text-white shadow-md') 
+                            : 'text-gray-500 hover:bg-gray-100'}`}
+                    >
+                        {m === 'price' && <BanknotesIcon className="w-4 h-4" />}
+                        {m === 'growth_mom' && <ArrowTrendingUpIcon className="w-4 h-4" />}
+                        {m === 'growth_yoy' && <CalendarDaysIcon className="w-4 h-4" />}
+                        {m === 'price' ? '평당가 기준' : (m === 'growth_mom' ? '전월 대비 등락' : '전년 대비 등락')}
+                    </button>
+                ))}
+            </div>
+
             {viewState.region !== 'South Korea' && (
-                <button onClick={handleBackToNational} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors">
-                    <ArrowLeftIcon className="w-4 h-4 text-gray-600" />
+                <button 
+                    onClick={handleBackToNational} 
+                    className="bg-white/90 backdrop-blur-md px-4 py-3 rounded-2xl shadow-lg border border-white/50 text-xs font-bold text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-2 transition-transform active:scale-95"
+                >
+                    <ArrowLeftIcon className="w-4 h-4" /> 전국 지도로 복귀
                 </button>
             )}
-            <h2 className="text-xl font-bold text-gray-900">
-                {viewState.region === 'South Korea' ? (mapMode === 'price' ? '전국 시세 히트맵' : '전국 상승률 히트맵') : `${normalizeName(viewState.region)} 상세 지도`}
-            </h2>
-          </div>
-          <p className="text-sm text-gray-500 mb-4 mt-1">
-            {mapMode === 'price' ? '25년 11월 기준 평당가' : '변동폭 기준'}
-          </p>
-          <div className="bg-white/80 backdrop-blur-sm p-3 rounded-xl border border-gray-200 shadow-sm inline-block min-w-[200px]">
-            <div className="flex justify-between text-[10px] text-gray-500 mb-1 font-bold">
-              <span>{labels.left}</span>
-              <span className="text-gray-400 font-normal">{labels.center}</span>
-              <span>{labels.right}</span>
-            </div>
-            <div className={`h-2 rounded-full w-full ${mapMode === 'price' ? 'bg-gradient-to-r from-blue-500 via-green-400 via-yellow-400 to-red-500' : 'bg-gradient-to-r from-blue-900 via-white to-red-700 border border-gray-200'}`}></div>
-          </div>
         </div>
-        <div className="bg-gray-100 p-1 rounded-xl flex gap-1">
-          {['price', 'growth_mom', 'growth_yoy'].map((m) => (
-             <button key={m} onClick={() => setMapMode(m)} className={`px-3 py-2 text-xs font-bold rounded-lg transition-all ${mapMode === m ? (m === 'price' ? 'bg-white text-blue-600 shadow-sm' : 'bg-white text-red-600 shadow-sm') : 'text-gray-500 hover:text-gray-700'}`}>
-                {m === 'price' ? '평당가' : (m === 'growth_mom' ? '전월대비' : '전년대비')}
-             </button>
-          ))}
-        </div>
-      </div>
 
-      <div className="flex-1 w-full h-full min-h-[400px] flex items-center justify-center -mt-10">
-        <ComposableMap projection="geoMercator" projectionConfig={{ scale: viewState.scale, center: viewState.center }} style={{ width: "100%", height: "100%" }}>
-            <ZoomableGroup center={viewState.center} zoom={1} minZoom={1} maxZoom={1} filterZoomEvent={() => false} translateExtent={[[0, 0], [800, 600]]} 
-               // moveTransitionDuration={500}  <-- 경고 해결: 삭제하거나 prop 이름 확인 필요 (react-simple-maps 버전에 따라 다름)
+        {/* 지도 렌더링 */}
+        <ComposableMap 
+            projection="geoMercator" 
+            projectionConfig={{ scale: viewState.scale, center: viewState.center }} 
+            style={{ width: "100%", height: "100%" }}
+        >
+            {/* [NEW] 3D 그림자 필터 정의 */}
+            <defs>
+                <filter id="geo-shadow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feDropShadow dx="2" dy="4" stdDeviation="3" floodColor="#000" floodOpacity="0.15" />
+                </filter>
+            </defs>
+
+            <ZoomableGroup 
+                center={viewState.center} 
+                zoom={1} 
+                minZoom={1} 
+                maxZoom={1} 
+                filterZoomEvent={() => false} 
+                translateExtent={[[0, 0], [800, 600]]}
             >
                 <Geographies geography={viewState.region === 'South Korea' ? GEO_URL_KOREA : GEO_URL_MUNI}>
                     {({ geographies }) =>
@@ -299,16 +319,24 @@ const HeatmapView = ({ data, mode = 'simple' }) => {
                         <Geography
                             key={geo.rsmKey}
                             geography={geo}
-                            fill={matchedItems.length > 0 ? colorScale(value) : "#F3F4F6"}
+                            fill={matchedItems.length > 0 ? colorScale(value) : "#E5E7EB"}
                             stroke="#FFFFFF"
-                            strokeWidth={viewState.region === 'South Korea' ? 0.8 : 0.3}
+                            strokeWidth={viewState.region === 'South Korea' ? 1 : 0.5}
                             style={{
-                                default: { outline: "none", transition: "all 300ms" },
+                                default: { 
+                                    outline: "none", 
+                                    transition: "all 300ms cubic-bezier(0.4, 0, 0.2, 1)",
+                                    filter: "url(#geo-shadow)" // [NEW] 그림자 적용
+                                },
                                 hover: { 
-                                    fill: mode === 'interactive' && viewState.region === 'South Korea' ? "#1e293b" : (matchedItems.length > 0 ? colorScale(value) : "#F3F4F6"), 
+                                    // fill 설정을 지워서 원래 히트맵 색상이 유지되게 함
+                                    opacity: 0.7,             // [수정] 투명도 조절 (1보다 작으면 투명해짐)
+                                    transform: "scale(1.00)", // [수정] 1.02배 살짝 확대
                                     outline: "none", 
                                     cursor: mode === 'interactive' && viewState.region === 'South Korea' ? "pointer" : "default",
-                                    stroke: "#1e293b", strokeWidth: 1.5 
+                                    stroke: "#ffffff",        // 테두리는 깔끔하게 흰색 유지
+                                    strokeWidth: 2,
+                                    zIndex: 50
                                 },
                                 pressed: { outline: "none" },
                             }}
@@ -328,8 +356,80 @@ const HeatmapView = ({ data, mode = 'simple' }) => {
                 </Geographies>
             </ZoomableGroup>
         </ComposableMap>
-        <ReactTooltip id="map-tooltip" place="top" variant="dark" style={{ fontSize: '13px', fontWeight: 'bold', zIndex: 100 }} />
+        <ReactTooltip 
+            id="map-tooltip" 
+            place="top" 
+            variant="dark" 
+            style={{ 
+                fontSize: '14px', 
+                fontWeight: 'bold', 
+                padding: '8px 16px',
+                borderRadius: '12px',
+                backgroundColor: 'rgba(30, 41, 59, 0.9)',
+                backdropFilter: 'blur(4px)',
+                zIndex: 100 
+            }} 
+        />
       </div>
+
+      {/* 2. [NEW] 우측 사이드바 위젯 (랭킹 정보) */}
+      <div className="w-100 bg-white border-l border-gray-100 p-6 shadow-xl z-10 flex flex-col gap-8 overflow-y-auto custom-scrollbar">
+        {/* 타이틀 */}
+        <div>
+           <h2 className="text-xl font-bold text-gray-900 mb-1">
+               {viewState.region === 'South Korea' ? '전국' : normalizeName(viewState.region)} 분석
+           </h2>
+           <p className="text-xs text-gray-500">실시간 데이터 기반 Top 5</p>
+        </div>
+
+        {/* Hot Place (급등) */}
+        <div>
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <FireIcon className="w-4 h-4 text-red-500" /> Hot Place (급등)
+            </h3>
+            <div className="space-y-3">
+                {rankingData.topGrowth.length > 0 ? rankingData.topGrowth.map((item, idx) => {
+                    const rate = item.prevMonthPrice ? ((item.currentPrice - item.prevMonthPrice) / item.prevMonthPrice * 100) : 0;
+                    return (
+                        <div key={item.id} className="flex items-center justify-between p-3 bg-red-50 rounded-2xl border border-red-100 hover:shadow-md transition-all cursor-pointer group">
+                            <div className="flex items-center gap-3">
+                                <span className="w-6 h-6 flex items-center justify-center bg-white rounded-full text-xs font-bold text-red-500 shadow-sm border border-red-100 group-hover:bg-red-500 group-hover:text-white transition-colors">{idx + 1}</span>
+                                <div>
+                                    <span className="text-sm font-bold text-gray-800 block">{item.region}</span>
+                                    <span className="text-[10px] text-gray-400 block">{(item.currentPrice/10000).toFixed(0)}만원</span>
+                                </div>
+                            </div>
+                            <span className="text-xs font-bold text-red-600 bg-white px-2 py-1 rounded-lg shadow-sm">+{rate.toFixed(2)}%</span>
+                        </div>
+                    );
+                }) : <div className="text-center text-xs text-gray-400 py-4">데이터 부족</div>}
+            </div>
+        </div>
+
+        {/* Top Price (고가) */}
+        <div>
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <CurrencyDollarIcon className="w-4 h-4 text-blue-500" /> Top Price (평당가)
+            </h3>
+            <div className="space-y-3">
+                {rankingData.topPrice.length > 0 ? rankingData.topPrice.map((item, idx) => (
+                    <div key={item.id} className="flex items-center justify-between p-3 bg-blue-50 rounded-2xl border border-blue-100 hover:shadow-md transition-all cursor-pointer group">
+                        <div className="flex items-center gap-3">
+                            <span className="w-6 h-6 flex items-center justify-center bg-white rounded-full text-xs font-bold text-blue-500 shadow-sm border border-blue-100 group-hover:bg-blue-500 group-hover:text-white transition-colors">{idx + 1}</span>
+                            <span className="text-sm font-bold text-gray-800">{item.region}</span>
+                        </div>
+                        <span className="text-xs font-bold text-blue-600 bg-white px-2 py-1 rounded-lg shadow-sm">{(item.currentPrice / 10000).toFixed(0)}만원</span>
+                    </div>
+                )) : <div className="text-center text-xs text-gray-400 py-4">데이터 부족</div>}
+            </div>
+        </div>
+
+        {/* 하단 장식 (선택 사항) */}
+        <div className="mt-auto pt-6 border-t border-gray-50 text-center">
+            <p className="text-[10px] text-gray-300">Data source: KB Land</p>
+        </div>
+      </div>
+
     </div>
   );
 };
@@ -402,11 +502,13 @@ const api = {
   },
 
   // [추가] RAG 서버와 통신하는 함수
-  analyzeRegion: async (region, query) => {
+  // [수정됨] RAG 분석 요청 (type 추가)
+  analyzeRegion: async (region, query, type = "detailed") => {
     const response = await fetch(`${PYTHON_API_URL}/rag/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ region, query })
+      // analysis_type 필드 추가
+      body: JSON.stringify({ region, query, analysis_type: type })
     });
     if (!response.ok) throw new Error("AI 분석 실패 (Python 서버 확인 필요)");
     return response.json();
@@ -696,8 +798,9 @@ const LegacyDashboard = ({ data }) => {
   const [sortConfig, setSortConfig] = useState({ key: 'currentPrice', direction: 'desc' });
   const searchInputRef = useRef(null);
 
-  // AI 상태
+  // [수정] AI 관련 상태: 점수(aiScore) 추가
   const [aiAnalysis, setAiAnalysis] = useState("");
+  const [aiScore, setAiScore] = useState(4); // 기본값 4(관망)
   const [isAiLoading, setIsAiLoading] = useState(false);
 
   useEffect(() => {
@@ -707,14 +810,18 @@ const LegacyDashboard = ({ data }) => {
     }
   }, [data, selectedRegion]);
 
-  useEffect(() => {
+  // LegacyDashboard 컴포넌트 내부 useEffect 수정
+useEffect(() => {
     if (!selectedRegion) return;
     const fetchAI = async () => {
       setIsAiLoading(true);
-      setAiAnalysis(""); 
+      setAiAnalysis("");
+      setAiScore(4); // 로딩 시 점수 초기화
       try {
-        const res = await api.analyzeRegion(selectedRegion.region, "향후 전망과 투자 가치를 요약해줘");
+        // [중요] 3번째 인자로 "summary" 전달 -> 요약형 답변 + 점수 요청
+        const res = await api.analyzeRegion(selectedRegion.region, "요약해줘", "summary");
         setAiAnalysis(res.result);
+        setAiScore(res.score); // 받아온 점수 저장
       } catch (err) {
         setAiAnalysis("분석 서버 연결 실패 (Python 서버 확인 필요)");
       } finally {
@@ -871,7 +978,7 @@ const LegacyDashboard = ({ data }) => {
       </div>
 
       {/* 2. 차트 & AI */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 h-[420px]">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 h-[480px]">
         {/* 차트 */}
         <div className="lg:col-span-3 bg-white rounded-3xl p-7 flex flex-col shadow-sm border border-gray-100/50">
           <div className="flex justify-between items-center mb-6">
@@ -904,33 +1011,13 @@ const LegacyDashboard = ({ data }) => {
         </div>
 
         {/* AI */}
-        <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-purple-100 flex flex-col relative overflow-hidden">
-            <div className="p-5 border-b border-purple-50 bg-purple-50/30 flex justify-between items-center">
-                <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                    <SparklesIcon className="w-5 h-5 text-purple-600" />
-                    AI 지역 분석 리포트
-                </h3>
-                {isAiLoading && <span className="text-xs font-bold text-purple-600 bg-purple-100 px-2 py-1 rounded-full animate-pulse">분석 중...</span>}
-            </div>
-            <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-gradient-to-b from-white to-purple-50/10">
-                {isAiLoading ? (
-                    <div className="space-y-4 animate-pulse">
-                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                        <div className="h-4 bg-gray-200 rounded w-full"></div>
-                        <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-                        <div className="h-32 bg-gray-100 rounded-xl mt-4"></div>
-                    </div>
-                ) : aiAnalysis ? (
-                    <div className="prose prose-sm prose-purple max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap">
-                        {aiAnalysis}
-                    </div>
-                ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-gray-400 text-center">
-                        <ChatBubbleLeftRightIcon className="w-12 h-12 mb-2 opacity-20" />
-                        <p className="text-sm">지역을 선택하면<br/>2025 리포트 기반 분석이 표시됩니다.</p>
-                    </div>
-                )}
-            </div>
+        {/* [수정됨] AI 요약 카드 영역 (기존 복잡한 div를 이걸로 대체) */}
+        <div className="lg:col-span-2">
+            <AISummaryCard 
+                score={aiScore} 
+                text={aiAnalysis} 
+                isLoading={isAiLoading} 
+            />
         </div>
       </div>
 
@@ -979,6 +1066,122 @@ const LegacyDashboard = ({ data }) => {
     </div>
   );
 };
+/**
+ * ==============================================================================
+ * [NEW] 투자 매력도 시각화 컴포넌트 (7단계 정밀 분석)
+ * ==============================================================================
+ */
+const InvestmentRating = ({ score }) => {
+  // 1~7점 설정
+  const config = {
+    1: { label: "적극 매도 (Strong Sell)", color: "bg-red-600", text: "text-red-700", emoji: "🚨" },
+    2: { label: "매도 (Sell)", color: "bg-red-400", text: "text-red-500", emoji: "📉" },
+    3: { label: "비중 축소 (Reduce)", color: "bg-orange-400", text: "text-orange-500", emoji: "⚠️" },
+    4: { label: "관망 (Hold)", color: "bg-yellow-400", text: "text-yellow-600", emoji: "🤔" },
+    5: { label: "분할 매수 (Buy)", color: "bg-green-400", text: "text-green-600", emoji: "🛒" },
+    6: { label: "매수 (Buy)", color: "bg-blue-500", text: "text-blue-600", emoji: "📈" },
+    7: { label: "적극 매수 (Strong Buy)", color: "bg-purple-600", text: "text-purple-700", emoji: "💎" },
+  };
+
+  // 범위 밖 점수 방어 로직
+  const safeScore = Math.max(1, Math.min(7, score || 4));
+  const current = config[safeScore];
+
+  return (
+    <div className="mb-6 p-5 bg-white/50 backdrop-blur-sm rounded-2xl border border-gray-200 shadow-sm">
+      <div className="flex justify-between items-end mb-3">
+        <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider">AI 투자 판단</h4>
+        <div className={`flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-gray-100 shadow-sm ${current.text}`}>
+             <span className="text-lg">{current.emoji}</span>
+             <span className="font-extrabold">{current.label}</span>
+        </div>
+      </div>
+      
+      {/* 게이지 바 (7칸) */}
+      <div className="flex gap-1.5 h-3">
+        {[1, 2, 3, 4, 5, 6, 7].map((step) => (
+          <div 
+            key={step}
+            className={`flex-1 rounded-full transition-all duration-500 relative ${
+              step <= safeScore ? current.color : "bg-gray-100"
+            } ${step === safeScore ? "ring-2 ring-offset-2 ring-gray-300 scale-105" : "opacity-30"}`}
+          >
+            {/* 현재 단계 화살표 표시 */}
+            {step === safeScore && (
+                <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[6px] border-t-gray-400"></div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-between mt-2 text-[10px] text-gray-400 font-bold px-1">
+        <span>매도</span>
+        <span>중립</span>
+        <span>매수</span>
+      </div>
+    </div>
+  );
+};
+/**
+ * ==============================================================================
+ * [NEW] 대시보드용 미니 AI 요약 카드 (직관적 시각화)
+ * ==============================================================================
+ */
+const AISummaryCard = ({ score, text, isLoading }) => {
+  if (isLoading) {
+    return (
+      <div className="h-full bg-white rounded-3xl p-6 border border-gray-100 flex flex-col gap-3 animate-pulse">
+        <div className="h-6 w-1/3 bg-gray-100 rounded-full"></div>
+        <div className="h-4 w-full bg-gray-100 rounded"></div>
+        <div className="h-4 w-5/6 bg-gray-100 rounded"></div>
+        <div className="h-4 w-4/6 bg-gray-100 rounded"></div>
+      </div>
+    );
+  }
+
+  if (!text) {
+    return (
+      <div className="h-full bg-white rounded-3xl p-6 border border-gray-100 flex flex-col items-center justify-center text-center text-gray-400">
+        <SparklesIcon className="w-10 h-10 mb-2 opacity-20" />
+        <p className="text-xs">지역을 선택하면<br />AI 한줄 분석이 표시됩니다.</p>
+      </div>
+    );
+  }
+
+  // 점수별 스타일 매핑 (배경색, 테두리, 아이콘)
+  const styles = {
+    1: { bg: "bg-red-50", border: "border-red-200", text: "text-red-700", badge: "bg-red-100 text-red-700", icon: "🚨", label: "적극 매도 경고" },
+    2: { bg: "bg-orange-50", border: "border-orange-200", text: "text-orange-700", badge: "bg-orange-100 text-orange-700", icon: "📉", label: "매도 우위" },
+    3: { bg: "bg-yellow-50", border: "border-yellow-200", text: "text-yellow-700", badge: "bg-yellow-100 text-yellow-700", icon: "⚠️", label: "비중 축소" },
+    4: { bg: "bg-gray-50", border: "border-gray-200", text: "text-gray-700", badge: "bg-gray-200 text-gray-600", icon: "🤔", label: "관망세" },
+    5: { bg: "bg-green-50", border: "border-green-200", text: "text-green-700", badge: "bg-green-100 text-green-700", icon: "🛒", label: "분할 매수" },
+    6: { bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-700", badge: "bg-blue-100 text-blue-700", icon: "📈", label: "매수 추천" },
+    7: { bg: "bg-purple-50", border: "border-purple-200", text: "text-purple-700", badge: "bg-purple-100 text-purple-700", icon: "💎", label: "강력 매수 기회" },
+  };
+
+  // 점수가 없거나 범위 밖이면 기본값(4) 처리
+  const safeScore = Math.max(1, Math.min(7, score || 4));
+  const style = styles[safeScore];
+
+  return (
+    <div className={`h-full rounded-3xl p-6 border-2 transition-all duration-300 hover:shadow-lg flex flex-col relative overflow-hidden ${style.bg} ${style.border}`}>
+      {/* 배경 장식 (물방울 효과) */}
+      <div className="absolute -right-4 -top-4 w-24 h-24 bg-white opacity-40 rounded-full blur-2xl"></div>
+
+      {/* 헤더: 배지 및 점수 */}
+      <div className="flex justify-between items-center mb-3 relative z-10">
+        <div className={`px-3 py-1 rounded-full text-xs font-extrabold flex items-center gap-1.5 shadow-sm ${style.badge}`}>
+          <span>{style.icon}</span>
+          <span>AI 분석 결과 - {style.label}</span>
+        </div>
+      </div>
+
+      {/* 본문: 요약 텍스트 */}
+      <div className={`text-sm font-medium leading-relaxed whitespace-pre-wrap relative z-10 ${style.text}`}>
+        {text}
+      </div>
+    </div>
+  );
+};
 
 /**
  * ==============================================================================
@@ -989,19 +1192,24 @@ const LegacyDashboard = ({ data }) => {
 const AIAnalysisTab = () => {
   const [region, setRegion] = useState('');
   const [result, setResult] = useState('');
+  const [score, setScore] = useState(null); // [추가] 점수 상태
   const [loading, setLoading] = useState(false);
 
+  // AIAnalysisTab 컴포넌트 내부 handleAnalyze 수정
   const handleAnalyze = async (e) => {
     e.preventDefault();
     if (!region) return;
     setLoading(true);
     setResult('');
+    setScore(null);
     
     try {
-      const data = await api.analyzeRegion(region, "");
+      // [수정] type="detailed" 전달 (기본값이라 생략 가능하지만 명시함) -> 길고 전문적인 분석
+      const data = await api.analyzeRegion(region, "", "detailed");
       setResult(data.result);
+      setScore(data.score); 
     } catch (err) {
-      setResult("오류 발생: Python(8000) 서버가 켜져있는지 확인해주세요.");
+      setResult("오류 발생: Python 서버 확인 필요");
     } finally {
       setLoading(false);
     }
@@ -1009,8 +1217,9 @@ const AIAnalysisTab = () => {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full min-h-[600px]">
-      {/* 입력 영역 */}
+      {/* 입력 영역 (왼쪽) */}
       <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 flex flex-col justify-center">
+        {/* ... (기존 입력 폼 코드 동일) ... */}
         <div className="mb-8">
           <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-purple-500/30 mb-6">
             <SparklesIcon className="w-8 h-8 text-white animate-pulse" />
@@ -1021,20 +1230,50 @@ const AIAnalysisTab = () => {
         <form onSubmit={handleAnalyze} className="space-y-4">
           <input type="text" className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-6 py-4 text-lg font-bold outline-none focus:ring-2 focus:ring-purple-500 transition-all" placeholder="예: 서울시 강남구" value={region} onChange={(e) => setRegion(e.target.value)} />
           <button disabled={loading} className="w-full bg-gray-900 text-white font-bold py-4 rounded-2xl shadow-xl hover:bg-gray-800 transition-all flex items-center justify-center gap-2 disabled:bg-gray-300">
-            {loading ? "분석 중..." : "AI 분석 시작하기"}
+            {loading ? "보고서 및 데이터 분석 중..." : "AI 분석 시작하기"}
           </button>
         </form>
       </div>
-      {/* 결과 영역 */}
+
+      {/* 결과 영역 (오른쪽) */}
       <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 flex flex-col relative overflow-hidden">
-        <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2"><ChatBubbleLeftRightIcon className="w-6 h-6 text-gray-400" />분석 결과</h3>
-        <div className="flex-1 overflow-y-auto pr-2 whitespace-pre-wrap text-gray-700 leading-relaxed">
-            {result || <div className="text-gray-300 text-center mt-20">지역을 입력하면 AI가 답변해줍니다.</div>}
+        <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+            <ChatBubbleLeftRightIcon className="w-6 h-6 text-gray-400" />
+            분석 결과
+        </h3>
+        
+        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+            {/* 로딩 중일 때 스켈레톤 UI */}
+            {loading && (
+                <div className="space-y-4 animate-pulse mt-4">
+                    <div className="h-20 bg-gray-100 rounded-xl mb-6"></div> {/* 점수판 스켈레톤 */}
+                    <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                    <div className="h-4 bg-gray-200 rounded w-full"></div>
+                    <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+                </div>
+            )}
+
+            {/* 결과가 있을 때 */}
+            {!loading && result ? (
+                <>
+                    {/* [NEW] 점수가 있을 때만 게이지 표시 */}
+                    {score && <InvestmentRating score={score} />}
+                    
+                    <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap">
+                        {result}
+                    </div>
+                </>
+            ) : !loading && (
+                <div className="text-gray-300 text-center mt-20">
+                    지역을 입력하면 AI가 투자가치를 산출합니다.
+                </div>
+            )}
         </div>
       </div>
     </div>
   );
 };
+
 
 /**
  * ==============================================================================
@@ -1079,7 +1318,7 @@ export default function RealEstateDashboard() {
           <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
             <HomeIcon className="w-6 h-6 text-white" />
           </div>
-          <span className="text-xl font-extrabold tracking-tight text-gray-900">SSAFY HOME</span>
+          <span className="text-xl font-extrabold tracking-tight text-gray-900">구집</span>
         </div>
         <nav className="space-y-2 flex-1">
           <div className="px-2 mb-2 text-xs font-bold text-gray-400 uppercase tracking-wider">분석</div>
@@ -1098,13 +1337,15 @@ export default function RealEstateDashboard() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">
               {currentTab === 'dashboard' && '부동산 시장 동향'}
-              {currentTab === 'map' && '지역별 시세 분석'}
+              {currentTab === 'map' && '지역별 히트맵'}
               {currentTab === 'ai' && 'AI 부동산 전망 분석'} {/* [추가] */}
               {currentTab === 'realtrade' && '실거래가 조회'}
               {currentTab === 'favorites' && '나의 관심 매물'}
             </h1>
             <p className="text-sm text-gray-500 font-medium mt-1">
-                {currentTab === 'dashboard' ? '데이터 기반 분석' : 'API 서비스 연동'}
+                {currentTab === 'dashboard' && '데이터 기반 부동산 시장 종합 분석'}
+                {currentTab === 'map' && '한눈에 보는 부동산 정보'}
+                {currentTab === 'ai' && '전문가의 리포트를 활용한 부동산 시장 정밀 분석'}            
             </p>
           </div>
           
