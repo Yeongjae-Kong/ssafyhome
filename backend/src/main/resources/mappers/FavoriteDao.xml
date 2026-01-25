@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ssafy.home.model.dao.FavoriteDao">
+
+    <resultMap id="FavoriteAptMap" type="com.ssafy.home.model.dto.FavoriteApartment">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="aptSeq" column="apt_seq"/>
+        <result property="aptName" column="apt_name"/>
+        <result property="sido" column="sido"/>
+        <result property="gugun" column="gugun"/>
+        <result property="dong" column="dong"/>
+        <result property="lastDealAmountKrw" column="last_deal_amount_krw"/>
+        <result property="lastDealMonth" column="last_deal_month"/>
+        <result property="lastDealAreaPyeong" column="last_deal_area_pyeong"/>
+        <result property="buildYear" column="build_year"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectByUserId" parameterType="int" resultMap="FavoriteAptMap">
+        SELECT * FROM favorite_apartments WHERE user_id = #{userId} ORDER BY updated_at DESC, id DESC
+    </select>
+
+    <select id="selectByUnique" resultMap="FavoriteAptMap">
+        SELECT * FROM favorite_apartments WHERE user_id = #{userId} AND apt_seq = #{aptSeq} LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.ssafy.home.model.dto.FavoriteApartment" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO favorite_apartments(user_id, apt_seq, apt_name, sido, gugun, dong, last_deal_amount_krw, last_deal_month, last_deal_area_pyeong, build_year)
+        VALUES(#{userId}, #{aptSeq}, #{aptName}, #{sido}, #{gugun}, #{dong}, #{lastDealAmountKrw}, #{lastDealMonth}, #{lastDealAreaPyeong}, #{buildYear})
+    </insert>
+
+    <delete id="deleteByIdAndUserId">
+        DELETE FROM favorite_apartments WHERE id = #{id} AND user_id = #{userId}
+    </delete>
+
+    <update id="updateLastDeal">
+        UPDATE favorite_apartments SET last_deal_amount_krw = #{amount}, last_deal_month = #{yyyymm} WHERE id = #{id}
+    </update>
+
+</mapper>

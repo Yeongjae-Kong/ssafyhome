@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ssafy.home.model.dao.DongCodeDao">
+
+    <resultMap id="DongCodeMap" type="com.ssafy.home.model.dto.DongCode">
+        <id column="dong_code" property="dongCode" />
+        <result column="sido_name" property="sidoName" />
+        <result column="gugun_name" property="gugunName" />
+        <result column="dong_name" property="dongName" />
+    </resultMap>
+
+    <select id="selectBySidoGugunDong" resultMap="DongCodeMap">
+        SELECT dong_code, sido_name, gugun_name, dong_name
+        FROM dongcodes
+        WHERE sido_name = #{sido}
+          AND gugun_name = #{gugun}
+          AND dong_name = #{dong}
+        LIMIT 1
+    </select>
+
+    <select id="selectBySidoGugun" resultMap="DongCodeMap">
+        SELECT dong_code, sido_name, gugun_name, dong_name
+        FROM dongcodes
+        WHERE sido_name = #{sido}
+          AND gugun_name = #{gugun}
+    </select>
+
+    <select id="selectByDongNameLike" resultMap="DongCodeMap">
+        SELECT dong_code, sido_name, gugun_name, dong_name
+        FROM dongcodes
+        WHERE dong_name LIKE CONCAT('%', #{q}, '%')
+        ORDER BY dong_name
+        LIMIT 50
+    </select>
+
+    <select id="selectByCode" parameterType="string" resultMap="DongCodeMap">
+        SELECT dong_code, sido_name, gugun_name, dong_name
+        FROM dongcodes
+        WHERE dong_code = #{code}
+        LIMIT 1
+    </select>
+
+</mapper>

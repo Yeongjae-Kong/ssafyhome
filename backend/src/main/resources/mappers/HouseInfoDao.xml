@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ssafy.home.model.dao.HouseInfoDao">
+
+    <resultMap id="HouseInfoMap" type="com.ssafy.home.model.dto.HouseInfo">
+        <id column="apt_seq" property="aptSeq" />
+        <result column="sgg_cd" property="sggCd" />
+        <result column="umd_cd" property="umdCd" />
+        <result column="umd_nm" property="umdNm" />
+        <result column="jibun" property="jibun" />
+        <result column="road_nm_sgg_cd" property="roadNmSggCd" />
+        <result column="road_nm" property="roadNm" />
+        <result column="road_nm_bonbun" property="roadNmBonbun" />
+        <result column="road_nm_bubun" property="roadNmBubun" />
+        <result column="apt_nm" property="aptNm" />
+        <result column="build_year" property="buildYear" />
+        <result column="latitude" property="latitude" />
+        <result column="longitude" property="longitude" />
+    </resultMap>
+
+    <select id="selectBySggCd" resultMap="HouseInfoMap">
+        SELECT * FROM houseinfos WHERE sgg_cd = #{sggCd}
+    </select>
+
+    <select id="selectBySggCdAndUmdCd" resultMap="HouseInfoMap">
+        SELECT * FROM houseinfos WHERE sgg_cd = #{sggCd} AND umd_cd = #{umdCd}
+    </select>
+
+    <select id="selectById" resultMap="HouseInfoMap">
+        SELECT * FROM houseinfos WHERE apt_seq = #{aptSeq}
+    </select>
+
+    <select id="searchByKeyword" resultMap="HouseInfoMap">
+        SELECT * FROM houseinfos
+        WHERE apt_nm LIKE CONCAT('%', #{q}, '%')
+           OR umd_nm LIKE CONCAT('%', #{q}, '%')
+           OR road_nm LIKE CONCAT('%', #{q}, '%')
+        ORDER BY build_year DESC, apt_nm
+        LIMIT 500
+    </select>
+
+    <select id="searchByKeywordInSgg" resultMap="HouseInfoMap">
+        SELECT * FROM houseinfos
+        WHERE sgg_cd = #{sggCd}
+          AND (
+              apt_nm LIKE CONCAT('%', #{q}, '%')
+           OR umd_nm LIKE CONCAT('%', #{q}, '%')
+           OR road_nm LIKE CONCAT('%', #{q}, '%')
+          )
+        ORDER BY build_year DESC, apt_nm
+        LIMIT 500
+    </select>
+
+    <select id="searchByKeywordInUmd" resultMap="HouseInfoMap">
+        SELECT * FROM houseinfos
+        WHERE sgg_cd = #{sggCd}
+          AND umd_cd = #{umdCd}
+          AND (
+              apt_nm LIKE CONCAT('%', #{q}, '%')
+           OR umd_nm LIKE CONCAT('%', #{q}, '%')
+           OR road_nm LIKE CONCAT('%', #{q}, '%')
+          )
+        ORDER BY build_year DESC, apt_nm
+        LIMIT 500
+    </select>
+
+    <select id="selectWithinBbox" resultMap="HouseInfoMap">
+        SELECT * FROM houseinfos
+        WHERE CAST(latitude AS DECIMAL(10,6)) BETWEEN #{minLat} AND #{maxLat}
+          AND CAST(longitude AS DECIMAL(11,6)) BETWEEN #{minLon} AND #{maxLon}
+        LIMIT 1000
+    </select>
+
+</mapper>
