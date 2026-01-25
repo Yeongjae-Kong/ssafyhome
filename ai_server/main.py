@@ -41,7 +41,7 @@ SSAFY_GMS_BASE_URL = "https://gms.ssafy.io/gmsapi/api.openai.com/v1"
 async def startup_event():
     global vector_store, retriever, llm
     
-    pdf_files = ["report.pdf", "KB주택시장리뷰_2025년 12월호.pdf", "GTX.pdf"]
+    pdf_files = ["report.pdf", "KB주택시장리뷰_2025년 12월호.pdf", "GTX.pdf", "2026년 한국 경제 및 부동산 시장 전망 통합 보고서.pdf"]
     all_splits = [] 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
